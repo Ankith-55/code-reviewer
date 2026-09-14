@@ -116,12 +116,21 @@ async def get_review_status(
             detail=f"Review job '{job_id}' not found",
         )
 
+    # Get real-time job counts directly from ReviewJob records
+    from database.models import ReviewJob
+    completed_files = db.query(ReviewJob).filter(ReviewJob.repository_id == job_id, ReviewJob.status == "completed").count()
+    failed_files = db.query(ReviewJob).filter(ReviewJob.repository_id == job_id, ReviewJob.status == "failed").count()
+    
+    current_status = repo.status
+    if repo.total_files > 0 and (completed_files + failed_files) >= repo.total_files:
+        current_status = "completed"
+
     return ReviewStatusResponse(
         job_id=repo.id,
-        status=repo.status,
+        status=current_status,
         total_files=repo.total_files,
-        completed_files=repo.completed_files,
-        failed_files=repo.failed_files,
+        completed_files=completed_files,
+        failed_files=failed_files,
     )
 
 
@@ -140,7 +149,12 @@ async def get_review_result(
             detail=f"Review job '{job_id}' not found",
         )
 
-    if repo.status != "completed":
+    from database.models import ReviewJob
+    completed_files = db.query(ReviewJob).filter(ReviewJob.repository_id == job_id, ReviewJob.status == "completed").count()
+    failed_files = db.query(ReviewJob).filter(ReviewJob.repository_id == job_id, ReviewJob.status == "failed").count()
+
+    is_complete = repo.status == "completed" or (repo.total_files > 0 and (completed_files + failed_files) >= repo.total_files)
+    if not is_complete:
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -148,8 +162,8 @@ async def get_review_result(
                 "status": repo.status,
                 "message": f"Review is currently {repo.status}. Please check back later.",
                 "total_files": repo.total_files,
-                "completed_files": repo.completed_files,
-                "failed_files": repo.failed_files,
+                "completed_files": completed_files,
+                "failed_files": failed_files,
             },
         )
 

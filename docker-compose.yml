@@ -1,0 +1,157 @@
+services:
+  # -------------------------------------------------------------
+  # Message Broker: RabbitMQ with Web Management UI
+  # -------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: code-review-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP broker port
+      - "15672:15672"  # Management dashboard
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # -------------------------------------------------------------
+  # Database: PostgreSQL
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: code-review-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-code_review}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-code_review}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # -------------------------------------------------------------
+  # FastAPI Server
+  # -------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: code-review-api
+    restart: unless-stopped
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=docker
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-code_review}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - STORAGE_PATH=/app/storage
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gemini-1.5-flash}
+    volumes:
+      - ./storage:/app/storage
+      - ./api:/app/api
+      - ./core:/app/core
+      - ./database:/app/database
+      - ./schemas:/app/schemas
+      - ./services:/app/services
+      - ./workers:/app/workers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # -------------------------------------------------------------
+  # Repository Worker (Extracts ZIP, discovers files, dispatches review jobs)
+  # -------------------------------------------------------------
+  repository-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: code-review-repo-worker
+    restart: unless-stopped
+    command: ["python", "-m", "workers.repository_worker"]
+    environment:
+      - APP_ENV=docker
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-code_review}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - STORAGE_PATH=/app/storage
+    volumes:
+      - ./storage:/app/storage
+      - ./api:/app/api
+      - ./core:/app/core
+      - ./database:/app/database
+      - ./schemas:/app/schemas
+      - ./services:/app/services
+      - ./workers:/app/workers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # -------------------------------------------------------------
+  # Review Worker (Horizontally Scalable: docker compose up --scale review-worker=4)
+  # -------------------------------------------------------------
+  review-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "workers.review_worker"]
+    environment:
+      - APP_ENV=docker
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-code_review}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - STORAGE_PATH=/app/storage
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gemini-1.5-flash}
+    volumes:
+      - ./storage:/app/storage
+      - ./api:/app/api
+      - ./core:/app/core
+      - ./database:/app/database
+      - ./schemas:/app/schemas
+      - ./services:/app/services
+      - ./workers:/app/workers
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  rabbitmq_data:

@@ -100,20 +100,32 @@ def increment_repo_file_counters(
     completed_inc: int = 0,
     failed_inc: int = 0,
 ) -> Optional[Repository]:
+    """Atomically increments completed/failed counters in PostgreSQL,
+
+    preventing race conditions across concurrent distributed workers.
+    """
+    db.execute(
+        update(Repository)
+        .where(Repository.id == repository_id)
+        .values(
+            completed_files=Repository.completed_files + completed_inc,
+            failed_files=Repository.failed_files + failed_inc,
+        )
+    )
+    db.commit()
+
     repo = get_repository(db, repository_id)
     if not repo:
         return None
 
-    repo.completed_files += completed_inc
-    repo.failed_files += failed_inc
-
     # Automatically mark repository completed if all files processed
     if repo.total_files > 0 and (repo.completed_files + repo.failed_files) >= repo.total_files:
-        repo.status = "completed"
-        repo.completed_at = datetime.datetime.utcnow()
+        if repo.status != "completed":
+            repo.status = "completed"
+            repo.completed_at = datetime.datetime.utcnow()
+            db.commit()
+            db.refresh(repo)
 
-    db.commit()
-    db.refresh(repo)
     return repo
 
 
