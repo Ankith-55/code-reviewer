@@ -267,6 +267,11 @@ code-reviewer/
 │   ├── test_queue.py          # Redelivery, QoS, and DLQ tests
 │   ├── test_repository.py     # Safe extraction & file filter tests
 │   └── test_review_worker.py  # Worker job lifecycle & LLM parsing tests
+├── docs/
+│   ├── architecture.md        # Deep architectural breakdown & ER diagram
+│   ├── benchmarking.md        # Performance formulas & Amdahl's Law analysis
+│   ├── fault-tolerance.md     # Crash recovery, redelivery & DLQ semantics
+│   └── message_queues.md      # Core Message Queue properties, concepts & interview notes
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
