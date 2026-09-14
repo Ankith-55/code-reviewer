@@ -37,6 +37,7 @@ storage/extracted/*
 .vscode/
 *.swp
 *.swo
+.dist
 
 # Testing
 .pytest_cache/
